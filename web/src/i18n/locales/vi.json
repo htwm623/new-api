@@ -7336,6 +7336,8 @@
     "Zhipu": "Zhipu",
     "Zhipu GLM": "Zhipu GLM",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Min Context Tokens (0 = no limit)": "Số token ngữ cảnh tối thiểu (0 = không giới hạn)",
+    "Skip this rule when the estimated request context is below this many tokens, so short scripted calls stay unbound while long sessions keep their channel": "Bỏ qua quy tắc này khi ngữ cảnh ước tính của yêu cầu thấp hơn số token này, giúp các lệnh gọi kịch bản ngắn không bị ràng buộc kênh trong khi phiên dài vẫn giữ nguyên kênh của mình"
   }
 }

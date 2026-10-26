@@ -34,6 +34,7 @@ export interface AffinityRule {
   key_sources: KeySource[]
   value_regex?: string
   ttl_seconds: number
+  min_context_tokens?: number
   skip_retry_on_failure: boolean
   include_using_group: boolean
   include_model_name: boolean

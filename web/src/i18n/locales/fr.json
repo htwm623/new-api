@@ -7336,6 +7336,8 @@
     "Zhipu": "Zhipu",
     "Zhipu GLM": "Zhipu GLM",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Min Context Tokens (0 = no limit)": "Tokens de contexte minimum (0 = sans limite)",
+    "Skip this rule when the estimated request context is below this many tokens, so short scripted calls stay unbound while long sessions keep their channel": "Ignorer cette règle lorsque le contexte estimé de la requête est inférieur à ce nombre de tokens ; les appels scriptés courts restent non liés tandis que les longues sessions conservent leur canal"
   }
 }

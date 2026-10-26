@@ -205,6 +205,9 @@ export function SessionRulesTable(props: SessionRulesTableProps) {
               {rule.ttl_seconds > 0
                 ? `${formatNumber(rule.ttl_seconds, locale)} ${t('seconds')}`
                 : t('Global default')}
+              {rule.min_context_tokens
+                ? ` · ≥${formatNumber(rule.min_context_tokens, locale)} ${t('tokens')}`
+                : ''}
             </TruncatedCell>
           ),
         },

@@ -528,6 +528,25 @@ it('switches a rule between inheritance and override while preserving other rule
   expect(savedRules[1]).toEqual(second)
 })
 
+it('setting a minimum context on a rule saves it and shows the threshold in the rules table', async () => {
+  show()
+  await screen.findByRole('table')
+  await userEvent.click(screen.getByRole('button', { name: 'Edit Rule' }))
+  const dialog = screen.getByRole('dialog')
+  const minContext = within(dialog).getByRole('spinbutton', {
+    name: 'Min Context Tokens (0 = no limit)',
+  })
+  expect(minContext).toHaveValue(0)
+  fireEvent.change(minContext, { target: { value: '2000' } })
+  await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+  expect(screen.getByRole('table')).toHaveTextContent('≥2,000 tokens')
+  await userEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+  await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(1))
+  expect(
+    JSON.parse(currentOptions['channel_affinity_setting.rules'])[0]
+  ).toMatchObject({ min_context_tokens: 2000 })
+})
+
 it('a new blank rule inherits the global default', async () => {
   show()
   await userEvent.click(await screen.findByRole('button', { name: 'Add Rule' }))

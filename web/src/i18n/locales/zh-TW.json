@@ -7336,6 +7336,8 @@
     "Zhipu": "智譜",
     "Zhipu GLM": "智譜GLM",
     "Zhipu V4": "智譜 V4",
-    "Zoom": "縮放"
+    "Zoom": "縮放",
+    "Min Context Tokens (0 = no limit)": "最低生效上下文（0 = 不限制）",
+    "Skip this rule when the estimated request context is below this many tokens, so short scripted calls stay unbound while long sessions keep their channel": "當請求的估算上下文低於該 token 數時跳過此規則，短小的腳本呼叫不綁定渠道，長會話仍保持原渠道"
   }
 }

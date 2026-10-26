@@ -242,6 +242,67 @@ func TestGetPreferredChannelByAffinity_RequestHeaderKeySource(t *testing.T) {
 	require.Equal(t, buildChannelAffinityKeyHint(affinityValue), meta.KeyHint)
 }
 
+func TestGetPreferredChannelByAffinity_MinContextTokensSkipsRule(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rule := operation_setting.ChannelAffinityRule{
+		Name:       "min-context-affinity",
+		ModelRegex: []string{"^my-local-.*$"},
+		PathRegex:  []string{"/v1/responses"},
+		KeySources: []operation_setting.ChannelAffinityKeySource{
+			{Type: "gjson", Path: "prompt_cache_key"},
+		},
+		MinContextTokens: 200,
+		IncludeRuleName:  true,
+	}
+
+	affinityValue := fmt.Sprintf("min-ctx-%d", time.Now().UnixNano())
+	cacheKeySuffix := buildChannelAffinityCacheKeySuffix(rule, "my-local-model", "default", affinityValue)
+
+	cache := getChannelAffinityCache()
+	require.NoError(t, cache.SetWithTTL(cacheKeySuffix, 9529, time.Minute))
+	t.Cleanup(func() {
+		_, _ = cache.DeleteMany([]string{cacheKeySuffix})
+	})
+
+	setting := operation_setting.GetChannelAffinitySetting()
+	originalRules := setting.Rules
+	setting.Rules = append([]operation_setting.ChannelAffinityRule{rule}, originalRules...)
+	t.Cleanup(func() {
+		setting.Rules = originalRules
+	})
+
+	shortBody := fmt.Sprintf(`{"prompt_cache_key":"%s","input":"hi"}`, affinityValue)
+	longBody := fmt.Sprintf(`{"prompt_cache_key":"%s","input":"%s"}`, affinityValue, strings.Repeat("token ", 1000))
+
+	for _, tc := range []struct {
+		name  string
+		body  string
+		found bool
+	}{
+		{name: "below minimum skips binding", body: shortBody, found: false},
+		{name: "above minimum keeps binding", body: longBody, found: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			ctx, _ := gin.CreateTestContext(rec)
+			ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(tc.body))
+			ctx.Request.Header.Set("Content-Type", "application/json")
+
+			channelID, found := GetPreferredChannelByAffinity(ctx, "my-local-model", "default")
+			require.Equal(t, tc.found, found)
+			if tc.found {
+				require.Equal(t, 9529, channelID)
+				_, ok := getChannelAffinityMeta(ctx)
+				require.True(t, ok)
+			} else {
+				_, ok := getChannelAffinityMeta(ctx)
+				require.False(t, ok, "skipped rule must not set affinity meta, so no binding is recorded later")
+			}
+		})
+	}
+}
+
 func TestClearCurrentChannelAffinityCache(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

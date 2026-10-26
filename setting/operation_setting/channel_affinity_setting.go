@@ -18,6 +18,12 @@ type ChannelAffinityRule struct {
 	ValueRegex string `json:"value_regex"`
 	TTLSeconds int    `json:"ttl_seconds"`
 
+	// MinContextTokens skips the rule when the estimated prompt token count of
+	// the request body is below this value; 0 applies no minimum. Use it to
+	// keep affinity off for short scripted calls while keeping it for long
+	// interactive sessions.
+	MinContextTokens int `json:"min_context_tokens"`
+
 	ParamOverrideTemplate map[string]any `json:"param_override_template,omitempty"`
 
 	SkipRetryOnFailure bool `json:"skip_retry_on_failure"`

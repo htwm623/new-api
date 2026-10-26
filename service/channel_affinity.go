@@ -18,6 +18,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/samber/hot"
 	"github.com/tidwall/gjson"
+	"unsafe"
+
+	"github.com/QuantumNous/new-api/tokenkit"
 )
 
 const (
@@ -422,6 +425,25 @@ func affinityFingerprint(s string) string {
 	return hex
 }
 
+// estimateChannelAffinityContextTokens estimates the prompt token count of the
+// buffered request body for the min_context_tokens rule gate. It estimates the
+// whole JSON body (keys, escaped text, and all), which over-counts a parsed
+// prompt by a small factor; the threshold is a coarse knob, so that is fine.
+func estimateChannelAffinityContextTokens(c *gin.Context, modelName string) int {
+	if c == nil || c.Request == nil {
+		return 0
+	}
+	storage, err := common.GetBodyStorage(c)
+	if err != nil {
+		return 0
+	}
+	body, err := storage.Bytes()
+	if err != nil || len(body) == 0 {
+		return 0
+	}
+	return tokenkit.Estimate(modelName, unsafe.String(unsafe.SliceData(body), len(body)))
+}
+
 func buildChannelAffinityKeyHint(s string) string {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -584,6 +606,9 @@ func GetPreferredChannelByAffinity(c *gin.Context, modelName string, usingGroup 
 			continue
 		}
 		if rule.ValueRegex != "" && !matchAnyRegexCached([]string{rule.ValueRegex}, affinityValue) {
+			continue
+		}
+		if rule.MinContextTokens > 0 && estimateChannelAffinityContextTokens(c, modelName) < rule.MinContextTokens {
 			continue
 		}
 
