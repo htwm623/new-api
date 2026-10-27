@@ -3389,6 +3389,7 @@
     "Key": "キー",
     "Key Fingerprint": "キーフィンガープリント",
     "Key Sources": "キーソース",
+    "Hashed first user message": "最初のユーザーメッセージのハッシュ",
     "Key Summary": "キー概要",
     "Key Update Mode": "キー更新モード",
     "Keys, OAuth credentials, and multi-key update behavior.": "キー、OAuth 認証情報、マルチキー更新動作を管理します。",

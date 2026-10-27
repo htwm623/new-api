@@ -547,6 +547,35 @@ it('setting a minimum context on a rule saves it and shows the threshold in the 
   ).toMatchObject({ min_context_tokens: 2000 })
 })
 
+it('a first_user_message key source saves without a key or path and renders its label', async () => {
+  show()
+  await screen.findByRole('table')
+  await userEvent.click(screen.getByRole('button', { name: 'Edit Rule' }))
+  const dialog = screen.getByRole('dialog')
+  // The key source type selector is the Base UI combobox inside the Key
+  // Sources section; the session behavior combobox sits above it.
+  const keySourceType = within(dialog)
+    .getAllByRole('combobox')
+    .find((el) => el.getAttribute('aria-haspopup') === 'listbox')
+  expect(keySourceType).toBeDefined()
+  await userEvent.click(keySourceType!)
+  await userEvent.click(
+    await within(document.body).findByRole('option', {
+      name: 'first_user_message',
+    })
+  )
+  await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+  expect(screen.getByRole('table')).toHaveTextContent(
+    'Hashed first user message'
+  )
+  await userEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+  await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(1))
+  expect(
+    JSON.parse(currentOptions['channel_affinity_setting.rules'])[0]
+      .key_sources
+  ).toEqual([{ type: 'first_user_message' }])
+})
+
 it('a new blank rule inherits the global default', async () => {
   show()
   await userEvent.click(await screen.findByRole('button', { name: 'Add Rule' }))

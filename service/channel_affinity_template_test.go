@@ -242,6 +242,141 @@ func TestGetPreferredChannelByAffinity_RequestHeaderKeySource(t *testing.T) {
 	require.Equal(t, buildChannelAffinityKeyHint(affinityValue), meta.KeyHint)
 }
 
+func TestExtractChannelAffinityValue_FirstUserMessage(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	// The same logical first user message in different representations must
+	// produce one stable hashed key; system/assistant turns are skipped.
+	sameTextCases := []string{
+		`{"messages":[{"role":"system","content":"You are helpful."},{"role":"user","content":"hello world"},{"role":"assistant","content":"hi"}]}`,
+		`{"messages":[{"role":"system","content":"You are helpful."},{"role":"user","content":[{"type":"text","text":"hello world"}]},{"role":"assistant","content":"hi"}]}`,
+		`{"input":[{"role":"developer","content":"You are helpful."},{"role":"user","content":[{"type":"input_text","text":"hello world"}]},{"role":"assistant","content":"hi"}]}`,
+	}
+	expected := ""
+	for i, body := range sameTextCases {
+		rec := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(rec)
+		ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
+		ctx.Request.Header.Set("Content-Type", "application/json")
+
+		value := extractChannelAffinityValue(ctx, operation_setting.ChannelAffinityKeySource{Type: "first_user_message"})
+		require.NotEmpty(t, value, "case %d", i)
+		require.Len(t, value, 16)
+		if expected == "" {
+			expected = value
+		} else {
+			require.Equal(t, expected, value, "case %d must hash to the same key", i)
+		}
+	}
+
+	for name, tc := range map[string]struct {
+		body string
+		want string
+	}{
+		"different text hashes differently": {
+			body: `{"messages":[{"role":"user","content":"hello other world"}]}`,
+			want: "different",
+		},
+		"binary block contributes placeholder not payload": {
+			body: `{"messages":[{"role":"user","content":[{"type":"text","text":"hello world"},{"type":"image","source":{"data":"AAAA"}}]}]}`,
+			want: "different",
+		},
+		"tool_result text is part of the anchor": {
+			body: `{"messages":[{"role":"user","content":[{"type":"tool_result","content":[{"type":"text","text":"hello world"}]}]}]}`,
+			want: "same",
+		},
+		"no user message yields empty": {
+			body: `{"messages":[{"role":"system","content":"only system"}]}`,
+			want: "empty",
+		},
+		"missing content yields empty": {
+			body: `{"messages":[{"role":"user"}]}`,
+			want: "empty",
+		},
+		"image-only first user content still hashes (placeholder, no payload)": {
+			body: `{"messages":[{"role":"user","content":[{"type":"image","source":{"data":"AAAA"}}]}]}`,
+			want: "nonempty",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			ctx, _ := gin.CreateTestContext(rec)
+			ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(tc.body))
+			ctx.Request.Header.Set("Content-Type", "application/json")
+
+			value := extractChannelAffinityValue(ctx, operation_setting.ChannelAffinityKeySource{Type: "first_user_message"})
+			switch tc.want {
+			case "empty":
+				require.Empty(t, value)
+			case "same":
+				require.Equal(t, expected, value)
+			case "different":
+				require.NotEmpty(t, value)
+				require.NotEqual(t, expected, value)
+			case "nonempty":
+				require.NotEmpty(t, value)
+			}
+		})
+	}
+}
+
+func TestGetPreferredChannelByAffinity_FirstUserMessageKeySource(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rule := operation_setting.ChannelAffinityRule{
+		Name:       "first-user-message-affinity",
+		ModelRegex: []string{"^claude-.*$"},
+		PathRegex:  []string{"/v1/messages"},
+		KeySources: []operation_setting.ChannelAffinityKeySource{
+			{Type: "first_user_message"},
+		},
+		IncludeRuleName: true,
+	}
+
+	// Two turns of one session resend the same first user message (one as a
+	// string, one as a text block) after the history has grown; both must
+	// resolve to the same cache key.
+	turn1 := `{"messages":[{"role":"user","content":"stable first question"}]}`
+	turn2 := `{"messages":[{"role":"user","content":"stable first question"},{"role":"assistant","content":"answer"},{"role":"user","content":[{"type":"text","text":"follow up"}]}]}`
+
+	setting := operation_setting.GetChannelAffinitySetting()
+	originalRules := setting.Rules
+	setting.Rules = append([]operation_setting.ChannelAffinityRule{rule}, originalRules...)
+	t.Cleanup(func() {
+		setting.Rules = originalRules
+	})
+
+	var cacheKeySuffix string
+	for _, body := range []string{turn1, turn2} {
+		rec := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(rec)
+		ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
+		ctx.Request.Header.Set("Content-Type", "application/json")
+
+		meta, ok := getChannelAffinityMeta(ctx)
+		require.False(t, ok)
+
+		channelID, found := GetPreferredChannelByAffinity(ctx, "claude-sonnet-5", "default")
+		if cacheKeySuffix == "" {
+			require.False(t, found)
+			meta, ok = getChannelAffinityMeta(ctx)
+			require.True(t, ok)
+			cacheKeySuffix = strings.TrimPrefix(meta.CacheKey, channelAffinityCacheNamespace+":")
+			cache := getChannelAffinityCache()
+			require.NoError(t, cache.SetWithTTL(cacheKeySuffix, 9530, time.Minute))
+			t.Cleanup(func() {
+				_, _ = cache.DeleteMany([]string{cacheKeySuffix})
+			})
+			continue
+		}
+		require.True(t, found)
+		require.Equal(t, 9530, channelID)
+		meta, ok = getChannelAffinityMeta(ctx)
+		require.True(t, ok)
+		require.Equal(t, "first_user_message", meta.KeySourceType)
+	}
+}
+
 func TestGetPreferredChannelByAffinity_MinContextTokensSkipsRule(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

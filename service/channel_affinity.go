@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/hex"
 	"hash/fnv"
 	"maps"
 	"regexp"
@@ -333,9 +334,108 @@ func extractChannelAffinityValue(c *gin.Context, src operation_setting.ChannelAf
 		default:
 			return strings.TrimSpace(res.Raw)
 		}
+	case "first_user_message":
+		return extractFirstUserMessageAffinityValue(c)
 	default:
 		return ""
 	}
+}
+
+// extractFirstUserMessageAffinityValue derives a conversation anchor from the
+// first user message of the request body. CLI clients resend the full history
+// every turn, so that first message is stable for the lifetime of a session
+// and pins the session to one channel the same way prompt_cache_key does for
+// clients that send one.
+//
+// The message list is read from "messages" (chat/completions, /v1/messages)
+// or "input" (/v1/responses). Content is normalized before hashing so the
+// same logical text yields the same key regardless of representation:
+// string content, a list of text blocks, and tool_result text all reduce to
+// the concatenated text, while binary blocks contribute only a type+length
+// placeholder so their bytes never enter the key. The returned value is a
+// truncated SHA-256 hex, never the content itself, so no prompt text is
+// stored in the affinity cache.
+func extractFirstUserMessageAffinityValue(c *gin.Context) string {
+	if c == nil || c.Request == nil {
+		return ""
+	}
+	storage, err := common.GetBodyStorage(c)
+	if err != nil {
+		return ""
+	}
+	body, err := storage.Bytes()
+	if err != nil || len(body) == 0 {
+		return ""
+	}
+	for _, field := range []string{"messages", "input"} {
+		res := gjson.GetBytes(body, field)
+		if !res.IsArray() {
+			continue
+		}
+		if text := firstUserMessageCanonicalText(res); text != "" {
+			return hex.EncodeToString(common.Sha256Raw([]byte(text)))[:16]
+		}
+	}
+	return ""
+}
+
+// firstUserMessageCanonicalText returns the normalized text of the first
+// user-role entry of a message array, or "" when there is none.
+func firstUserMessageCanonicalText(arr gjson.Result) string {
+	for _, msg := range arr.Array() {
+		if msg.Get("role").String() != "user" {
+			continue
+		}
+		return canonicalMessageText(msg.Get("content"))
+	}
+	return ""
+}
+
+// canonicalMessageText normalizes one message's content: a string is used as
+// is, a content-block list is reduced to its text parts (tool_result blocks
+// contribute their inner text), and non-text blocks contribute a stable
+// type+length placeholder instead of their payload. A block that itself is a
+// bare string counts as text.
+func canonicalMessageText(content gjson.Result) string {
+	var b strings.Builder
+	appendBlockPlaceholder := func(blockType string, n int) {
+		b.WriteString("\x00[")
+		b.WriteString(blockType)
+		b.WriteByte(':')
+		b.WriteString(strconv.Itoa(n))
+		b.WriteString("]\x00")
+	}
+	if content.Type == gjson.String {
+		return strings.TrimSpace(content.String())
+	}
+	if !content.IsArray() {
+		return ""
+	}
+	for _, block := range content.Array() {
+		blockType := block.Get("type").String()
+		switch {
+		case block.Type == gjson.String:
+			b.WriteString(block.String())
+		case blockType == "text" || blockType == "input_text":
+			b.WriteString(block.Get("text").String())
+		case blockType == "tool_result":
+			inner := block.Get("content")
+			if inner.Type == gjson.String {
+				b.WriteString(inner.String())
+			} else if inner.IsArray() {
+				for _, part := range inner.Array() {
+					if part.Get("type").String() == "text" {
+						b.WriteString(part.Get("text").String())
+					}
+				}
+			}
+		default:
+			// image/audio/file and unknown blocks: keep the entry stable and
+			// bound-length without hashing the payload.
+			appendBlockPlaceholder(blockType, len(block.Raw))
+		}
+	}
+	return strings.TrimSpace(b.String())
 }
 
 func buildChannelAffinityCacheKeySuffix(rule operation_setting.ChannelAffinityRule, modelName string, usingGroup string, affinityValue string) string {

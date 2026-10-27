@@ -138,16 +138,22 @@ export function SessionRulesTable(props: SessionRulesTableProps) {
                   <Badge variant='secondary' className='shrink-0'>
                     {source.type}
                   </Badge>
-                  <TruncatedCell
-                    tabIndex={0}
-                    tooltipContent={
-                      source.type === 'gjson' ? source.path : source.key
-                    }
-                  >
-                    <code>
-                      {source.type === 'gjson' ? source.path : source.key}
-                    </code>
-                  </TruncatedCell>
+                  {source.type === 'first_user_message' ? (
+                    <span className='text-muted-foreground truncate'>
+                      {t('Hashed first user message')}
+                    </span>
+                  ) : (
+                    <TruncatedCell
+                      tabIndex={0}
+                      tooltipContent={
+                        source.type === 'gjson' ? source.path : source.key
+                      }
+                    >
+                      <code>
+                        {source.type === 'gjson' ? source.path : source.key}
+                      </code>
+                    </TruncatedCell>
+                  )}
                 </div>
               ))}
               {!rule.key_sources?.length ? (

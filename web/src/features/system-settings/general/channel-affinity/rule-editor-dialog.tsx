@@ -58,7 +58,17 @@ const KEY_SOURCE_TYPES = [
   'context_string',
   'request_header',
   'gjson',
+  'first_user_message',
 ] as const
+
+// Key source types that extract their value from the request body without a
+// user-supplied key or path.
+const KEYLESS_SOURCE_TYPES = new Set<KeySource['type']>(['first_user_message'])
+
+function keySourceInputValue(src: KeySource): string {
+  if (KEYLESS_SOURCE_TYPES.has(src.type)) return ''
+  return src.type === 'gjson' ? src.path || '' : src.key || ''
+}
 
 const CONTEXT_KEY_PRESETS = [
   'id',
@@ -100,6 +110,7 @@ function normalizeStringList(text: string): string[] {
 function normalizeKeySource(src: Partial<KeySource>): KeySource {
   const type = (src?.type || 'gjson') as KeySource['type']
   if (type === 'gjson') return { ...src, type, key: '', path: src?.path || '' }
+  if (KEYLESS_SOURCE_TYPES.has(type)) return { type }
   return { ...src, type, key: src?.key || '', path: '' }
 }
 
@@ -210,7 +221,12 @@ export function RuleEditorDialog(props: Props) {
 
     const validKeySources = keySources
       .map(({ rowId: _, ...source }) => normalizeKeySource(source))
-      .filter((s) => s.type && (s.type === 'gjson' ? s.path : s.key))
+      .filter(
+        (s) =>
+          s.type &&
+          (KEYLESS_SOURCE_TYPES.has(s.type) ||
+            (s.type === 'gjson' ? s.path : s.key))
+      )
     if (validKeySources.length === 0) {
       toast.error(t('At least one valid key source is required'))
       return
@@ -410,7 +426,8 @@ export function RuleEditorDialog(props: Props) {
                       ? 'metadata.conversation_id'
                       : 'user_id'
                   }
-                  value={src.type === 'gjson' ? src.path || '' : src.key || ''}
+                  value={keySourceInputValue(src)}
+                  disabled={KEYLESS_SOURCE_TYPES.has(src.type)}
                   onChange={(e) => {
                     const next = [...keySources]
                     if (src.type === 'gjson') {
